@@ -144,25 +144,61 @@ public class BubbleDragon : MonoBehaviour {
     }
 
     static void FadeOutDestroy( BubbleCell b ) {
+        var go = b.go;
+        var mat = b.mat;
         b.color = 0;
-        if ( b.go != null ) {
-            var scale = b.go.transform.localScale;
-            b.go.transform.DOScale( scale * 2, TweenTime );
+        b.go = null;
+        b.mat = null;
+        if ( go != null ) {
+            var scale = go.transform.localScale;
+            go.transform.DOScale( scale * 2, TweenTime );
         }
         FadeOutBubble(
-            b.mat,
+            mat,
             () => {
-                if ( b.go != null ) {
-                    var parent = b.go.transform.parent;
-                    b.go.transform.parent = null;
-                    UnityEngine.Object.DestroyObject( b.go );
-                    b.go = null;
+                if ( go != null ) {
+                    var parent = go.transform.parent;
+                    go.transform.parent = null;
+                    UnityEngine.Object.DestroyObject( go );
+                    go = null;
                     if ( parent != null && parent.childCount == 0 ) {
                         UnityEngine.Object.DestroyObject( parent.gameObject );
                     }
                 }
             }
         );
+    }
+
+    static void DropDestroy( BubbleCell b ) {
+        var go = b.go;
+        var mat = b.mat;
+        b.color = 0;
+        b.go = null;
+        b.mat = null;
+        if ( go != null ) {
+            var t = go.transform.DOShakePosition( 1.0f, 0.25f, 20 );
+            t.onComplete += () => {
+                if ( go != null ) {
+                    var pos = go.transform.localPosition;
+                    pos.y += 4.0f;
+                    go.transform.DOLocalMove( pos, TweenTime * 2 );
+                    FadeOutBubble(
+                        mat,
+                        () => {
+                            if ( go != null ) {
+                                var parent = go.transform.parent;
+                                go.transform.parent = null;
+                                UnityEngine.Object.DestroyObject( go );
+                                go = null;
+                                if ( parent != null && parent.childCount == 0 ) {
+                                    UnityEngine.Object.DestroyObject( parent.gameObject );
+                                }
+                            }
+                        }
+                    );
+                }
+            };
+        }
     }
 
     void Start() {
@@ -538,10 +574,10 @@ public class BubbleDragon : MonoBehaviour {
                 var line = m_buffer[ j ];
                 for ( int i = 0; i < line.cells.Length; ++i ) {
                     var bi = line.cells[ i ];
-                    if ( bi != null && bi.go != null ) {
+                    if ( bi != null && bi.go != null && bi.color != 0 ) {
                         var c1 = bi.go.transform.localPosition;
                         var c0 = curPos;
-                        var t = CollisionTest_Sphere_Sphere( c0, bubble.movedir, bubble.speed, bubble.radius, c1, bubble.radius );
+                        var t = CollisionTest_Sphere_Sphere( c0, bubble.movedir, bubble.speed, bubble.radius, c1, bubble.radius * 0.95f );
                         if ( t >= 0 && t < hitTime ) {
                             hitTime = t;
                             movedir = Reflect( bubble.movedir, ( c0 - c1 ).normalized );
@@ -563,6 +599,17 @@ public class BubbleDragon : MonoBehaviour {
             }
         }
         bubble.transform.localPosition = curPos;
+    }
+
+    BubbleCell[] GetLine( int y ) {
+        if ( y < 0 || y >= m_buffer.Count ) {
+            return null;
+        }
+        var line = m_buffer[ m_buffer.Count - 1 - y ];
+        if ( line == null || line.cells == null ) {
+            return null;
+        }
+        return line.cells;
     }
 
     BubbleCell GetBubble( int x, int y ) {
@@ -666,6 +713,105 @@ public class BubbleDragon : MonoBehaviour {
         }
     }
 
+    void DoDropDestroyBubbles( List<BubbleCell> eraseList ) {
+        for ( int i = 0; i < eraseList.Count; ++i ) {
+            var b = eraseList[ i ];
+            if ( b.go != null ) {
+                DropDestroy( b );
+            }
+        }
+    }
+
+    void Sweep( List<BubbleCell> eraseList ) {
+        eraseList.Clear();
+        m_openTable.Clear();
+        m_closedTable.Clear();
+        var cells = GetLine( 0 );
+        if ( cells != null ) {
+            for ( int i = 0; i < cells.Length; ++i ) {
+                var b = GetBubble( i, 0 );
+                if ( b != null && b.go != null ) {
+                    var pt = new iPoint( b.x, b.y );
+                    m_closedTable.Add( pt );
+                    m_openTable.Add( pt );
+                }
+            }
+        }
+        var count = 1;
+        try {
+            while ( m_openTable.Count > 0 ) {
+                int last = m_openTable.Count - 1;
+                iPoint cur = m_openTable[ last ];
+                m_openTable.RemoveAt( last );
+                m_closedTable.Add( cur );
+                var a = new iPoint( cur.x + 2, cur.y );
+                var aa = GetBubble( a.x, a.y );
+                if ( aa != null && aa.go != null ) {
+                    if ( !m_closedTable.Contains( a ) ) {
+                        m_openTable.Add( a );
+                        ++count;
+                    }
+                }
+                var b = new iPoint( cur.x - 2, cur.y );
+                var bb = GetBubble( b.x, b.y );
+                if ( bb != null && bb.go != null ) {
+                    if ( !m_closedTable.Contains( b ) ) {
+                        m_openTable.Add( b );
+                        ++count;
+                    }
+                }
+                var c = new iPoint( cur.x - 1, cur.y - 1 );
+                var cc = GetBubble( c.x, c.y );
+                if ( cc != null && cc.go != null ) {
+                    if ( !m_closedTable.Contains( c ) ) {
+                        m_openTable.Add( c );
+                        ++count;
+                    }
+                }
+                var d = new iPoint( cur.x + 1, cur.y + 1 );
+                var dd = GetBubble( d.x, d.y );
+                if ( dd != null && dd.go != null ) {
+                    if ( !m_closedTable.Contains( d ) ) {
+                        m_openTable.Add( d );
+                        ++count;
+                    }
+                }
+                var e = new iPoint( cur.x - 1, cur.y + 1 );
+                var ee = GetBubble( e.x, e.y );
+                if ( ee != null && ee.go != null ) {
+                    if ( !m_closedTable.Contains( e ) ) {
+                        m_openTable.Add( e );
+                        ++count;
+                    }
+                }
+                var f = new iPoint( cur.x + 1, cur.y - 1 );
+                var ff = GetBubble( f.x, f.y );
+                if ( ff != null && ff.go != null ) {
+                    if ( !m_closedTable.Contains( f ) ) {
+                        m_openTable.Add( f );
+                        ++count;
+                    }
+                }
+            }
+        } finally {
+            if ( eraseList != null ) {
+                for ( int j = 0; j < m_buffer.Count; ++j ) {
+                    var _cells = GetLine( j );
+                    for ( int i = 0; i < _cells.Length; ++i ) {
+                        var b = _cells[ i ];
+                        if ( b != null && b.go != null && b.color != 0 ) {
+                            if ( !m_closedTable.Contains( new iPoint( b.x, b.y ) ) ) {
+                                m_eraseList.Add( b );
+                            }
+                        }
+                    }
+                }
+            }
+            m_openTable.Clear();
+            m_closedTable.Clear();
+        }
+    }
+
     void BubbleMove( ref FlyingBubble bubble ) {
         if ( !bubble.stopped ) {
             HitTest( bubble );
@@ -676,6 +822,9 @@ public class BubbleDragon : MonoBehaviour {
                         try {
                             CheckEliminate( new iPoint( slot.x, slot.y ), slot.color, m_eraseList, 3 );
                             DoEliminateBubbles( m_eraseList );
+
+                            Sweep( m_eraseList );
+                            DoDropDestroyBubbles( m_eraseList );
                         } finally {
                             m_eraseList.Clear();
                         }
